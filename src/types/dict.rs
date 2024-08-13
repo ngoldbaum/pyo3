@@ -411,8 +411,11 @@ impl<'py> Iterator for BoundDictIterator<'py> {
         let mut key: *mut ffi::PyObject = std::ptr::null_mut();
         let mut value: *mut ffi::PyObject = std::ptr::null_mut();
 
-        if unsafe { ffi::PyDict_Next(self.dict.as_ptr(), &mut self.ppos, &mut key, &mut value) }
-            != 0
+        let cs = unsafe { ffi::Py_BEGIN_CRITICAL_SECTION(self.dict.as_ptr()) };
+
+        let result = if unsafe {
+            ffi::PyDict_Next(self.dict.as_ptr(), &mut self.ppos, &mut key, &mut value)
+        } != 0
         {
             self.len -= 1;
             let py = self.dict.py();
@@ -425,7 +428,9 @@ impl<'py> Iterator for BoundDictIterator<'py> {
             ))
         } else {
             None
-        }
+        };
+        ffi::Py_END_CRITICAL_SECTION(cs);
+        result
     }
 
     #[inline]
