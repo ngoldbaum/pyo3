@@ -14,6 +14,7 @@ use std::num::{
     NonZeroU16, NonZeroU32, NonZeroU64, NonZeroU8, NonZeroUsize,
 };
 use std::os::raw::c_long;
+use std::sync::atomic::{AtomicI32, Ordering};
 
 macro_rules! int_fits_larger_int {
     ($rust_type:ty, $larger_type:ty) => {
@@ -689,6 +690,44 @@ nonzero_int_impl!(NonZeroU32, u32);
 nonzero_int_impl!(NonZeroU64, u64);
 nonzero_int_impl!(NonZeroU128, u128);
 nonzero_int_impl!(NonZeroUsize, usize);
+
+impl<'py> IntoPyObject<'py> for &AtomicI32 {
+    type Target = PyInt;
+    type Output = Bound<'py, Self::Target>;
+    type Error = Infallible;
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        unsafe {
+            Ok(ffi::PyLong_FromLong(self.load(Ordering::Relaxed) as c_long)
+                .assume_owned(py)
+                .downcast_into_unchecked())
+        }
+    }
+
+    #[cfg(feature = "experimental-inspect")]
+    fn type_output() -> TypeInfo {
+        TypeInfo::builtin("int")
+    }
+}
+
+impl<'py> IntoPyObject<'py> for AtomicI32 {
+    type Target = PyInt;
+    type Output = Bound<'py, Self::Target>;
+    type Error = Infallible;
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        unsafe {
+            Ok(ffi::PyLong_FromLong(self.load(Ordering::Relaxed) as c_long)
+                .assume_owned(py)
+                .downcast_into_unchecked())
+        }
+    }
+
+    #[cfg(feature = "experimental-inspect")]
+    fn type_output() -> TypeInfo {
+        TypeInfo::builtin("int")
+    }
+}
 
 #[cfg(test)]
 mod test_128bit_integers {

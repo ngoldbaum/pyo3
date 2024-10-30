@@ -1,6 +1,6 @@
 #![cfg(feature = "macros")]
 
-use std::cell::Cell;
+use std::sync::atomic::AtomicI32;
 
 use pyo3::prelude::*;
 use pyo3::py_run;
@@ -218,19 +218,19 @@ fn get_all_and_set() {
 }
 
 #[pyclass]
-struct CellGetterSetter {
+struct AtomicGetterSetter {
     #[pyo3(get, set)]
-    cell_inner: Cell<i32>,
+    inner: AtomicI32,
 }
 
 #[test]
 fn cell_getter_setter() {
-    let c = CellGetterSetter {
-        cell_inner: Cell::new(10),
+    let c = AtomicGetterSetter {
+        inner: AtomicI32::new(10),
     };
     Python::with_gil(|py| {
         let inst = Py::new(py, c).unwrap();
-        let cell = Cell::new(20i32).into_pyobject(py).unwrap();
+        let cell = AtomicI32::new(20i32).into_pyobject(py).unwrap();
 
         py_run!(py, cell, "assert cell == 20");
         py_run!(py, inst, "assert inst.cell_inner == 10");
