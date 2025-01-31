@@ -41,7 +41,11 @@ fn generate_build_configs() -> Result<()> {
         // if the user-provided config file is present.
         configure(None, "pyo3-build-config.txt")?;
     } else {
-        configure(Some(make_interpreter_config()?), "pyo3-build-config.txt")?;
+        let interpreter_config = make_interpreter_config()?;
+        if let Some(path) = &interpreter_config.executable {
+            println!("cargo:rerun-if-changed={}", path);
+        }
+        configure(Some(interpreter_config), "pyo3-build-config.txt")?;
     }
     Ok(())
 }

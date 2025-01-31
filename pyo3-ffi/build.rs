@@ -192,10 +192,6 @@ fn emit_link_config(interpreter_config: &InterpreterConfig) -> Result<()> {
 fn configure_pyo3() -> Result<()> {
     let interpreter_config = resolve_interpreter_config()?;
 
-    if env_var("PYO3_PRINT_CONFIG").map_or(false, |os_str| os_str == "1") {
-        print_config_and_exit(&interpreter_config);
-    }
-
     ensure_python_version(&interpreter_config)?;
     ensure_target_pointer_width(&interpreter_config)?;
 
@@ -210,6 +206,10 @@ fn configure_pyo3() -> Result<()> {
         println!("{}", cfg)
     }
 
+    if let Some(path) = &interpreter_config.executable {
+        println!("cargo:rerun-if-changed={}", path)
+    }
+
     // Extra lines come last, to support last write wins.
     for line in &interpreter_config.extra_build_script_lines {
         println!("{}", line);
@@ -217,6 +217,10 @@ fn configure_pyo3() -> Result<()> {
 
     // Emit cfgs like `invalid_from_utf8_lint`
     print_feature_cfgs();
+
+    if env_var("PYO3_PRINT_CONFIG").map_or(false, |os_str| os_str == "1") {
+        print_config_and_exit(&interpreter_config);
+    }
 
     Ok(())
 }

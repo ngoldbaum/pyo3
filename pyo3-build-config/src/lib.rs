@@ -289,7 +289,11 @@ pub mod pyo3_build_script_impl {
             )?)?;
             Ok(interpreter_config)
         } else {
-            InterpreterConfig::from_reader(Cursor::new(HOST_CONFIG))
+            let interpreter_config = InterpreterConfig::from_reader(Cursor::new(HOST_CONFIG))?;
+            if let Some(path) = &interpreter_config.executable {
+                println!("cargo:rerun-if-changed={}", path);
+            }
+            Ok(interpreter_config)
         }
     }
 }
