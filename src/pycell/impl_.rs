@@ -70,8 +70,8 @@ impl BorrowFlag {
                 // last atomic load
                 value,
                 value + 1,
-                Ordering::Relaxed,
-                Ordering::Relaxed,
+                Ordering::AcqRel,
+                Ordering::Acquire,
             ) {
                 Ok(..) => {
                     // value has been successfully incremented, we need an acquire fence
@@ -90,7 +90,7 @@ impl BorrowFlag {
         // impossible to get into a bad state from here so relaxed
         // ordering is fine, the decrement only needs to eventually
         // be visible
-        self.0.fetch_sub(1, Ordering::Relaxed);
+        self.0.fetch_sub(1, Ordering::AcqRel);
     }
 }
 
