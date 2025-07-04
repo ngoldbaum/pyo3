@@ -18,6 +18,8 @@ use portable_atomic::AtomicI64;
 use std::sync::atomic::AtomicI64;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use once_cell::sync::OnceCell;
+
 #[cfg(not(any(PyPy, GraalPy)))]
 use crate::exceptions::PyImportError;
 #[cfg(all(not(Py_LIMITED_API), Py_GIL_DISABLED))]
@@ -25,7 +27,7 @@ use crate::PyErr;
 use crate::{
     ffi,
     impl_::pymethods::PyMethodDef,
-    sync::GILOnceCell,
+    sync::OnceCellExt,
     types::{PyCFunction, PyModule, PyModuleMethods},
     Bound, Py, PyClass, PyResult, PyTypeInfo, Python,
 };
@@ -43,7 +45,7 @@ pub struct ModuleDef {
     ))]
     interpreter: AtomicI64,
     /// Initialized module object, cached to avoid reinitialization.
-    module: GILOnceCell<Py<PyModule>>,
+    module: OnceCell<Py<PyModule>>,
     /// Whether or not the module supports running without the GIL
     gil_used: AtomicBool,
 }
@@ -89,7 +91,7 @@ impl ModuleDef {
                 not(all(windows, Py_LIMITED_API, not(Py_3_10)))
             ))]
             interpreter: AtomicI64::new(-1),
-            module: GILOnceCell::new(),
+            module: OnceCell::new(),
             gil_used: AtomicBool::new(true),
         }
     }
@@ -134,7 +136,7 @@ impl ModuleDef {
             }
         }
         self.module
-            .get_or_try_init(py, || {
+            .get_or_try_init_py_attached(py, || {
                 let module = unsafe {
                     Py::<PyModule>::from_owned_ptr_or_err(
                         py,

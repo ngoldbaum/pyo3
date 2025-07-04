@@ -4,6 +4,10 @@ use std::{
     thread::{self, ThreadId},
 };
 
+use std::sync::Mutex;
+
+use once_cell::sync::OnceCell;
+
 #[cfg(Py_3_14)]
 use crate::err::error_on_minusone;
 #[cfg(Py_3_14)]
@@ -14,12 +18,10 @@ use crate::{
     impl_::pyclass::MaybeRuntimePyMethodDef,
     impl_::pymethods::PyMethodDefType,
     pyclass::{create_type_object, PyClassTypeObject},
-    sync::GILOnceCell,
+    sync::OnceCellExt,
     types::PyType,
     Bound, PyClass, PyErr, PyObject, PyResult, Python,
 };
-
-use std::sync::Mutex;
 
 use super::PyClassItemsIter;
 
@@ -29,11 +31,11 @@ pub struct LazyTypeObject<T>(LazyTypeObjectInner, PhantomData<T>);
 
 // Non-generic inner of LazyTypeObject to keep code size down
 struct LazyTypeObjectInner {
-    value: GILOnceCell<PyClassTypeObject>,
+    value: OnceCell<PyClassTypeObject>,
     // Threads which have begun initialization of the `tp_dict`. Used for
     // reentrant initialization detection.
     initializing_threads: Mutex<Vec<ThreadId>>,
-    tp_dict_filled: GILOnceCell<()>,
+    tp_dict_filled: OnceCell<()>,
 }
 
 impl<T> LazyTypeObject<T> {
@@ -42,9 +44,9 @@ impl<T> LazyTypeObject<T> {
     pub const fn new() -> Self {
         LazyTypeObject(
             LazyTypeObjectInner {
-                value: GILOnceCell::new(),
+                value: OnceCell::new(),
                 initializing_threads: Mutex::new(Vec::new()),
-                tp_dict_filled: GILOnceCell::new(),
+                tp_dict_filled: OnceCell::new(),
             },
             PhantomData,
         )
@@ -83,7 +85,7 @@ impl LazyTypeObjectInner {
                 type_object,
                 is_immutable_type,
                 ..
-            } = self.value.get_or_try_init(py, || init(py))?;
+            } = self.value.get_or_try_init_py_attached(py, || init(py))?;
             let type_object = type_object.bind(py);
             self.ensure_init(type_object, *is_immutable_type, name, items_iter)?;
             Ok(type_object)
@@ -117,7 +119,7 @@ impl LazyTypeObjectInner {
         // `tp_dict`, it can still request the type object through `get_or_init`,
         // but the `tp_dict` may appear empty of course.
 
-        if self.tp_dict_filled.get(py).is_some() {
+        if self.tp_dict_filled.get().is_some() {
             // `tp_dict` is already filled: ok.
             return Ok(());
         }
@@ -185,40 +187,42 @@ impl LazyTypeObjectInner {
 
         // Now we hold the GIL and we can assume it won't be released until we
         // return from the function.
-        let result = self.tp_dict_filled.get_or_try_init(py, move || {
-            let result = initialize_tp_dict(py, type_object.as_ptr(), items);
-            #[cfg(Py_3_14)]
-            if is_immutable_type {
-                // freeze immutable types after __dict__ is initialized
-                let res = unsafe { ffi::PyType_Freeze(type_object.as_type_ptr()) };
-                error_on_minusone(py, res)?;
-            }
-            #[cfg(all(Py_3_10, not(Py_LIMITED_API), not(Py_3_14)))]
-            if is_immutable_type {
-                use crate::types::PyTypeMethods as _;
-                #[cfg(not(Py_GIL_DISABLED))]
-                unsafe {
-                    (*type_object.as_type_ptr()).tp_flags |= ffi::Py_TPFLAGS_IMMUTABLETYPE
-                };
-                #[cfg(Py_GIL_DISABLED)]
-                unsafe {
-                    (*type_object.as_type_ptr()).tp_flags.fetch_or(
-                        ffi::Py_TPFLAGS_IMMUTABLETYPE,
-                        std::sync::atomic::Ordering::Relaxed,
-                    )
-                };
-                unsafe { ffi::PyType_Modified(type_object.as_type_ptr()) };
-            }
+        let result = self
+            .tp_dict_filled
+            .get_or_try_init_py_attached(py, move || {
+                let result = initialize_tp_dict(py, type_object.as_ptr(), items);
+                #[cfg(Py_3_14)]
+                if is_immutable_type {
+                    // freeze immutable types after __dict__ is initialized
+                    let res = unsafe { ffi::PyType_Freeze(type_object.as_type_ptr()) };
+                    error_on_minusone(py, res)?;
+                }
+                #[cfg(all(Py_3_10, not(Py_LIMITED_API), not(Py_3_14)))]
+                if is_immutable_type {
+                    use crate::types::PyTypeMethods as _;
+                    #[cfg(not(Py_GIL_DISABLED))]
+                    unsafe {
+                        (*type_object.as_type_ptr()).tp_flags |= ffi::Py_TPFLAGS_IMMUTABLETYPE
+                    };
+                    #[cfg(Py_GIL_DISABLED)]
+                    unsafe {
+                        (*type_object.as_type_ptr()).tp_flags.fetch_or(
+                            ffi::Py_TPFLAGS_IMMUTABLETYPE,
+                            std::sync::atomic::Ordering::Relaxed,
+                        )
+                    };
+                    unsafe { ffi::PyType_Modified(type_object.as_type_ptr()) };
+                }
 
-            // Initialization successfully complete, can clear the thread list.
-            // (No further calls to get_or_init() will try to init, on any thread.)
-            let mut threads = {
-                drop(guard);
-                self.initializing_threads.lock().unwrap()
-            };
-            threads.clear();
-            result
-        });
+                // Initialization successfully complete, can clear the thread list.
+                // (No further calls to get_or_init() will try to init, on any thread.)
+                let mut threads = {
+                    drop(guard);
+                    self.initializing_threads.lock().unwrap()
+                };
+                threads.clear();
+                result
+            });
 
         if let Err(err) = result {
             return Err(wrap_in_runtime_error(
