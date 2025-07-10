@@ -1,13 +1,7 @@
-use once_cell::sync::OnceCell;
-
-use crate::{
-    sync::OnceCellExt,
-    types::{PyAnyMethods, PyType},
-    Bound, Py, PyErr, Python,
-};
+use crate::{sync::PyOnceCell, types::PyType, Bound, Py, PyErr, Python};
 
 pub struct ImportedExceptionTypeObject {
-    imported_value: OnceCell<Py<PyType>>,
+    imported_value: PyOnceCell<Py<PyType>>,
     module: &'static str,
     name: &'static str,
 }
@@ -15,7 +9,7 @@ pub struct ImportedExceptionTypeObject {
 impl ImportedExceptionTypeObject {
     pub const fn new(module: &'static str, name: &'static str) -> Self {
         Self {
-            imported_value: OnceCell::new(),
+            imported_value: PyOnceCell::new(),
             module,
             name,
         }
@@ -23,14 +17,7 @@ impl ImportedExceptionTypeObject {
 
     pub fn get<'py>(&self, py: Python<'py>) -> &Bound<'py, PyType> {
         self.imported_value
-            .get_or_try_init_py_attached(py, || {
-                let type_object = py
-                    .import(self.module)?
-                    .getattr(self.name)?
-                    .downcast_into()?;
-                Ok(type_object.unbind())
-            })
-            .map(|ty| ty.bind(py))
+            .import(py, self.module, self.name)
             .unwrap_or_else(|e: PyErr| {
                 panic!(
                     "failed to import exception {}.{}: {}",
