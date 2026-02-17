@@ -46,9 +46,9 @@ extern "C" {
     pub fn PyCriticalSection_Begin_v0(c: *mut PyCriticalSection_v0, op: *mut PyObject);
     pub fn PyCriticalSection_End_v0(c: *mut PyCriticalSection_v0);
     pub fn PyCriticalSection2_Begin_v0(
-        c: *mut PyCriticalSection_v0,
+        c: *mut PyCriticalSection2_v0,
         a: *mut PyObject,
         b: *mut PyObject,
     );
-    pub fn PyCriticalSection2_Env_v0(c: *mut PyCriticalSection_v0);
+    pub fn PyCriticalSection2_End_v0(c: *mut PyCriticalSection2_v0);
 }

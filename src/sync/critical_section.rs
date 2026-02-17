@@ -53,7 +53,10 @@ struct CSGuard(crate::ffi::PyCriticalSection);
 impl Drop for CSGuard {
     fn drop(&mut self) {
         unsafe {
+            #[cfg(not(Py_LIMITED_API))]
             crate::ffi::PyCriticalSection_End(&mut self.0);
+            #[cfg(Py_LIMITED_API)]
+            crate::ffi::PyCriticalSection_End_v0(&mut self.0);
         }
     }
 }
@@ -65,7 +68,10 @@ struct CS2Guard(crate::ffi::PyCriticalSection2);
 impl Drop for CS2Guard {
     fn drop(&mut self) {
         unsafe {
+            #[cfg(not(Py_LIMITED_API))]
             crate::ffi::PyCriticalSection2_End(&mut self.0);
+            #[cfg(Py_LIMITED_API)]
+            crate::ffi::PyCriticalSection2_End_v0(&mut self.0);
         }
     }
 }
@@ -133,7 +139,14 @@ where
     #[cfg(Py_GIL_DISABLED)]
     {
         let mut guard = CSGuard(unsafe { std::mem::zeroed() });
-        unsafe { crate::ffi::PyCriticalSection_Begin(&mut guard.0, object.as_ptr()) };
+        #[cfg(not(Py_LIMITED_API))]
+        unsafe {
+            crate::ffi::PyCriticalSection_Begin(&mut guard.0, object.as_ptr())
+        };
+        #[cfg(Py_LIMITED_API)]
+        unsafe {
+            crate::ffi::PyCriticalSection_Begin_v0(&mut guard.0, object.as_ptr())
+        };
         f()
     }
     #[cfg(not(Py_GIL_DISABLED))]
@@ -160,7 +173,14 @@ where
     #[cfg(Py_GIL_DISABLED)]
     {
         let mut guard = CS2Guard(unsafe { std::mem::zeroed() });
-        unsafe { crate::ffi::PyCriticalSection2_Begin(&mut guard.0, a.as_ptr(), b.as_ptr()) };
+        #[cfg(not(Py_LIMITED_API))]
+        unsafe {
+            crate::ffi::PyCriticalSection2_Begin(&mut guard.0, a.as_ptr(), b.as_ptr())
+        };
+        #[cfg(Py_LIMITED_API)]
+        unsafe {
+            crate::ffi::PyCriticalSection2_Begin_v0(&mut guard.0, a.as_ptr(), b.as_ptr())
+        };
         f()
     }
     #[cfg(not(Py_GIL_DISABLED))]
