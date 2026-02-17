@@ -435,6 +435,8 @@ pub use self::compile::*;
 pub use self::complexobject::*;
 #[cfg(all(Py_3_8, not(Py_LIMITED_API)))]
 pub use self::context::*;
+#[cfg(Py_3_15)]
+pub use self::critical_section::*;
 #[cfg(not(Py_LIMITED_API))]
 pub use self::datetime::*;
 pub use self::descrobject::*;
@@ -502,6 +504,8 @@ mod compile;
 mod complexobject;
 #[cfg(all(Py_3_8, not(Py_LIMITED_API)))]
 mod context; // It's actually 3.7.1, but no cfg for patches.
+#[cfg(Py_3_15)]
+mod critical_section;
 #[cfg(not(Py_LIMITED_API))]
 pub(crate) mod datetime;
 mod descrobject;
@@ -590,3 +594,9 @@ mod cpython;
 
 #[cfg(not(Py_LIMITED_API))]
 pub use self::cpython::*;
+#[cfg(all(Py_3_13, not(Py_LIMITED_API)))]
+pub use self::cpython::{PyCriticalSection, PyCriticalSection2};
+#[cfg(all(Py_3_15, Py_LIMITED_API))]
+pub type PyCriticalSection = PyCriticalSection_v0;
+#[cfg(all(Py_3_15, Py_LIMITED_API))]
+pub type PyCriticalSection2 = PyCriticalSection2_v0;
