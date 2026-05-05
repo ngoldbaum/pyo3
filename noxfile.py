@@ -967,7 +967,8 @@ def _format_ffi_extern(session: nox.Session, *, check: bool = False):
 
     if check and changed:
         session.error(
-            "extern_libpython! blocks are not formatted:\n"
+            "extern_libpython! blocks are not formatted,\n"
+            "run 'nox -s format-ffi-extern' to format them:\n"
             + "\n".join(f"  {p}" for p in changed)
             + "\n\nRun `nox -s format-ffi-extern` to fix."
         )
