@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::Cell;
 
 use pyo3::{
     prelude::*,
@@ -17,24 +17,6 @@ struct LockHolder {
     sender: std::sync::mpsc::Sender<()>,
 }
 
-#[pyclass]
-struct FinalizationLockHolder {
-    sender: Option<std::sync::mpsc::Sender<()>>,
-    done: SyncReceiver<()>,
-    wait_for_thread: bool,
-}
-
-impl Drop for FinalizationLockHolder {
-    fn drop(&mut self) {
-        self.sender.take();
-        if self.wait_for_thread {
-            self.done
-                .recv_timeout(std::time::Duration::from_secs(10))
-                .ok();
-        }
-    }
-}
-
 // This will repeatedly attach and detach from the Python interpreter
 // once the LockHolder is dropped.
 #[pyfunction]
@@ -51,80 +33,36 @@ fn hammer_attaching_in_thread() -> LockHolder {
     LockHolder { sender }
 }
 
-/// Wrapper to mark Receiver as Sync.
-struct SyncReceiver<T>(std::sync::mpsc::Receiver<T>);
-
-impl<T> std::ops::Deref for SyncReceiver<T> {
-    type Target = std::sync::mpsc::Receiver<T>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-// SAFETY: each wrapped receiver is accessed from only one thread.
-unsafe impl<T> Sync for SyncReceiver<T> {}
-
-struct FinalizationThreadLocal {
-    object: Option<Py<PyAny>>,
-    done: std::sync::mpsc::Sender<()>,
-}
-
 #[pyclass]
 struct MustDropWhileAttached;
 
 impl Drop for MustDropWhileAttached {
     fn drop(&mut self) {
-        #[cfg(not(Py_LIMITED_API))]
-        {
-            // SAFETY: PyGILState_Check can always be called.
-            if unsafe { pyo3::ffi::PyGILState_Check() } == 0 {
-                std::process::abort();
-            }
-        }
-    }
-}
-
-impl Drop for FinalizationThreadLocal {
-    fn drop(&mut self) {
-        self.object.take();
-        self.done.send(()).ok();
+        // SAFETY: always callable; fatal error (abort) if the thread is not attached.
+        unsafe { pyo3::ffi::PyThreadState_Get() };
     }
 }
 
 thread_local! {
-    static DETACH_DURING_FINALIZATION_CONTEXT: RefCell<Option<FinalizationThreadLocal>> = const { RefCell::new(None) };
+    // Dropped when the thread exits, which on older CPython happens inside
+    // PyEval_RestoreThread when reattaching during finalization.
+    static DROPPED_ON_THREAD_EXIT: Cell<Option<Py<MustDropWhileAttached>>> = const { Cell::new(None) };
 }
 
 #[pyfunction]
-fn detach_during_finalization(py: Python<'_>) -> FinalizationLockHolder {
+fn detach_during_finalization(py: Python<'_>) -> LockHolder {
     let (sender, receiver) = std::sync::mpsc::channel();
     let (ready_sender, ready_receiver) = std::sync::mpsc::channel();
-    let (done_sender, done_receiver) = std::sync::mpsc::channel();
-    let receiver = SyncReceiver(receiver);
     std::thread::spawn(move || {
         Python::attach(|py| {
-            DETACH_DURING_FINALIZATION_CONTEXT.with_borrow_mut(|context| {
-                *context = Some(FinalizationThreadLocal {
-                    object: Some(Py::new(py, MustDropWhileAttached).unwrap().into_any()),
-                    done: done_sender,
-                });
-            });
+            DROPPED_ON_THREAD_EXIT.set(Some(Py::new(py, MustDropWhileAttached).unwrap()));
             ready_sender.send(()).unwrap();
-            py.detach(|| {
-                receiver.recv().ok();
-                // Interpreter is finalizing while we try to reattach after returning
-            });
+            py.detach(move || receiver.recv().ok());
+            // Interpreter is finalizing while we try to reattach after returning
         });
     });
     py.detach(move || ready_receiver.recv()).unwrap();
-    FinalizationLockHolder {
-        sender: Some(sender),
-        done: SyncReceiver(done_receiver),
-        // Older CPython releases run TLS destructors here on macOS and musl.
-        wait_for_thread: cfg!(any(target_os = "macos", target_env = "musl"))
-            && py.version_info() < (3, 13, 8),
-    }
+    LockHolder { sender }
 }
 
 #[pyfunction]
