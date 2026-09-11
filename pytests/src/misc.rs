@@ -75,9 +75,12 @@ struct MustDropWhileAttached;
 
 impl Drop for MustDropWhileAttached {
     fn drop(&mut self) {
-        // SAFETY: PyGILState_Check can always be called.
-        if unsafe { pyo3::ffi::PyGILState_Check() } == 0 {
-            std::process::abort();
+        #[cfg(not(Py_LIMITED_API))]
+        {
+            // SAFETY: PyGILState_Check can always be called.
+            if unsafe { pyo3::ffi::PyGILState_Check() } == 0 {
+                std::process::abort();
+            }
         }
     }
 }
